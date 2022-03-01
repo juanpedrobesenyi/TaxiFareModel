@@ -7,6 +7,9 @@ from sklearn.model_selection import train_test_split
 from TaxiFareModel.data import get_data, clean_data
 from TaxiFareModel.encoders import DistanceTransformer
 from TaxiFareModel.encoders import TimeFeaturesEncoder
+import mlflow
+from mlflow.tracking import MlflowClient
+from memoized_property import memoized_property
 import pandas as pd
 import numpy as np
 
@@ -19,6 +22,8 @@ class Trainer():
         self.pipeline = None
         self.X = X
         self.y = y
+        self.MLFLOW_URI = "https://mlflow.lewagon.co/"
+        self.experiment_name = "Argentina, Buenos Aires juanpedrobesenyi"
 
     def set_pipeline(self):
         """defines the pipeline as a class attribute"""
@@ -53,6 +58,27 @@ class Trainer():
         print(rmse)
         return rmse
 
+    @memoized_property
+    def mlflow_client(self):
+        mlflow.set_tracking_uri(self.MLFLOW_URI)
+        return MlflowClient()
+
+    @memoized_property
+    def mlflow_experiment_id(self):
+        try:
+            return self.mlflow_client.create_experiment(self.experiment_name)
+        except BaseException:
+            return self.mlflow_client.get_experiment_by_name(self.experiment_name).experiment_id
+
+    @memoized_property
+    def mlflow_run(self):
+        return self.mlflow_client.create_run(self.mlflow_experiment_id)
+
+    def mlflow_log_param(self, key, value):
+        self.mlflow_client.log_param(self.mlflow_run.info.run_id, key, value)
+
+    def mlflow_log_metric(self, key, value):
+        self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
 
 if __name__ == "__main__":
     df = get_data()
@@ -66,4 +92,12 @@ if __name__ == "__main__":
     trainer = Trainer(X_train,y_train)
     trainer.run()
     # evaluate
-    trainer.evaluate(X_test,y_test)
+    result = trainer.evaluate(X_test,y_test)
+
+    # Log_to_MLFlow
+
+    trainer.mlflow_log_param("model", "Linear")
+    trainer.mlflow_log_metric("rmse", result)
+    experiment_id = trainer.mlflow_experiment_id
+
+    print(f"experiment URL: https://mlflow.lewagon.co/#/experiments/{experiment_id}")
